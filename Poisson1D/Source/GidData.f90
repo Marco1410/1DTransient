@@ -233,13 +233,13 @@ Subroutine GidResults()
   Write(results,*)      iNode, localProblem%phi(iNode)
   End Do
   write(results,*)      'End Values'
-!!$  Write(results,*)
-!!$  write(results,*)      'Result "Flux"',' "',trim(projectName),'" ','1 Scalar OnNodes'
-!!$  write(results,*)      'Values'
-!!$  Do iNode = 1, localProblem%domain%nNodes
-!!$  Write(results,*)      iNode, localProblem%flux(iNode)
-!!$  End Do
-!!$  write(results,*)      'End Values'
+  Write(results,*)
+  write(results,*)      'Result "Flux"',' "',trim(projectName),'" ','1 Scalar OnNodes'
+  write(results,*)      'Values'
+  Do iNode = 1, localProblem%domain%nNodes
+  Write(results,*)      iNode, localProblem%flux(iNode)
+  End Do
+  write(results,*)      'End Values'
   Close(results)
 End Subroutine GidResults
 !----------------------------------------------------------------------------

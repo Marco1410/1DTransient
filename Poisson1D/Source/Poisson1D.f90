@@ -17,6 +17,7 @@ Module Poisson1DMod
      Procedure(fDefault), pointer, nopass :: c
      Type(sparseType) :: K
      Type(sparseType) :: M
+     Type(sparseType) :: MLumped
      Type(sparseType) :: MInverse     
      Real(dp), Dimension(:), Allocatable :: phi
      Real(dp), Dimension(:), Allocatable :: rhs
@@ -34,7 +35,7 @@ Module Poisson1DMod
      Procedure, Public :: solveTransientState
      Procedure, Private :: computeK
      Procedure, Private :: computeM
-     Procedure, Private :: getInverse
+!!$     Procedure, Private :: getInverse
      Procedure, Private :: computeMLumped
      Procedure, Private :: computeRHS
      Procedure, Private :: boundaryConditions
@@ -50,7 +51,7 @@ Module Poisson1DMod
   
   Real(dp), Dimension(:,:,:), Allocatable :: shapeFuncMat, derivShapeFuncMat
   Real(dp), Dimension(:), Allocatable :: QVect, kVect, rhoVect, cVect
-  Real(dp) :: Kij, fi, Minvij
+  Real(dp) :: Kij, fi, Mij
   Integer :: i, j, iElem, ip, jp
   
 Contains
@@ -121,6 +122,7 @@ Contains
     Class(Poisson1DType) :: this
     Integer, parameter :: ITR_MAX = 1000
     Real(dp), parameter :: TOL_ABS = 1d-15
+    Allocate(this%flux(size(this%domain%x)))
     Call this%computeK
     Call this%computeRHS
     Allocate(this%phi(this%domain%nNodes))
@@ -146,7 +148,7 @@ Contains
          , mr = 500                    &
          , tol_abs = TOL_ABS           &
          , tol_rel = 1d-15            )
-    !Call problem%computeFlux
+    Call this%computeFlux
   End Subroutine solveSteadyState
 
   Subroutine solveTransientState(this)
@@ -191,26 +193,29 @@ Contains
     time = this%t0
     Allocate(this%phi(this%domain%nNodes))
     this%phi = 0.d0
+    Allocate(this%flux(size(this%domain%x)))
 !!$------------------------------------------------------------------
     Call this%computeK
-    Call this%computeMinvLumped
+    Call this%computeMLumped
+    call this%computeFlux
+!!$    call this%getInverse
+    
+!!$Print*, 'm AI :','size :', size(this%Minv%AI)
+!!$print*,this%Minv%AI
+!!$print*, 'm AJ :','size :', size(this%Minv%AJ)
+!!$print*,this%Minv%AJ
+!!$print*, 'm A  :','size :', size(this%Minv%A)
+!!$print*,this%Minv%A
+!!$
+Do i = 1, size(this%MLumped%A)
+   this%MLumped%A(i) = 1.d0/this%MLumped%A(i)
+End Do
 
 !!$    Do i = 1, this%domain%nNodes
-!!$       Do j = this%Minv%AI(i), this%Minv%AI(i+1)-1
-!!$Print'(A,I0,A,I0,A,E10.4)', 'Minv(', i, ',', this%Minv%AJ(j), ') = ', this%Minv%A(j)
+!!$       Do j = this%Mlumped%AI(i), this%Mlumped%AI(i+1)-1
+!!$Print'(A,I0,A,I0,A,E10.4)', 'Mlumped(', i, ',', this%Mlumped%AJ(j), ') = ', this%Mlumped%A(j)
 !!$       End Do
 !!$    End Do
-
-Print*, 'm AI :','size :', size(this%Minv%AI)
-print*,this%Minv%AI
-print*, 'm AJ :','size :', size(this%Minv%AJ)
-print*,this%Minv%AJ
-print*, 'm A  :','size :', size(this%Minv%A)
-print*,this%Minv%A
-
-Do i = 1, size(this%Minv%A)
-   this%Minv%A(i) = 1.d0/this%Minv%A(i)
-End Do
 
     Call this%computeRHS
 !!$-------------------------------------------------------------------
@@ -245,6 +250,14 @@ End Do
        write(results,*)      'End Values'
        write(results,*)
 
+       write(results,*)      'Result "Flux"',' "',trim(projectName),'" ',t,'Scalar OnNodes'
+       write(results,*)      'Values' 
+    Do i = 1, this%domain%nNodes
+       Write(results,*)      i, this%Flux(i)
+    End Do
+       write(results,*)      'End Values'
+       write(results,*)
+       
        Delta_t = .5*this%c(this%domain%element(1)%materialIndex,1.d0)&
             *this%kcoef(this%domain%element(1)%materialIndex,1.d0)&
             *(abs(this%domain%x(1)-this%domain%x(2)))**2&
@@ -259,16 +272,16 @@ End Do
             , a = this%K%A                &
             , x = this%phi                &
             , w = w                       )
-       this%phi=this%phi+Delta_t*(this%Minv%A*(this%rhs-w))
+       this%phi=this%phi+Delta_t*(this%MLumped%A*(this%rhs-w))
        this%phi = this%phi(this%domain%nNodes:1:-1)
-
 !!$ Boundary conditions
 !!$-------------------------------------------------------------------
     Do i = 1, size(this%DirichletNode)
        this%phi(this%DirichletNode(i)) = this%DirichletValue(i)
     End Do
 !!$--------------------------------------------------------------------
-  time = time + Delta_t  
+    call this%computeFlux
+    time = time + Delta_t
     End Do
   Close(Data)
   Close(results)
@@ -360,7 +373,7 @@ End Do
     Implicit none
     Class(poisson1DType), Intent(InOut) :: this
     Integer :: nNodes
-    Call this%Minv%init(nnz = 16*this%domain%nElem, rows = this%domain%nNodes+1)
+    Call this%MLumped%init(nnz = 16*this%domain%nElem, rows = this%domain%nNodes+1)
     Allocate(rhoVect(this%nGauss),cVect(this%nGauss))
     Do iElem = 1, this%domain%nElem
        nNodes = this%domain%element(iElem)%nNodes
@@ -376,23 +389,23 @@ End Do
             , upper = this%domain%x(this%domain%element(iElem)%node(nNodes)))
 
        Do i = 1, nNodes
-             Minvij = gauss(1.5*this%domain%element(iElem)%jacobian, cVect,rhoVect &
+             Mij = gauss(1.5*this%domain%element(iElem)%jacobian, cVect,rhoVect &
                   , shapeFuncMat(nNodes-1, i, :) &
                   , shapeFuncMat(nNodes-1, i, :))
-             Call this%Minv%append(value = Minvij &
+             Call this%MLumped%append(value = Mij &
                   , row = this%domain%element(iElem)%node(i) &
                   , col = this%domain%element(iElem)%node(i))
        End Do
     End Do
-    Call this%Minv%getSparse
+    Call this%MLumped%getSparse
     Deallocate(rhoVect, cVect)
-  End Subroutine computeMinvLumped
+  End Subroutine computeMLumped
 
  Subroutine computeM(this)
     Implicit none
     Class(poisson1DType), Intent(InOut) :: this
     Integer :: nNodes
-    Call this%Minv%init(nnz = 16*this%domain%nElem, rows = this%domain%nNodes+1)
+    Call this%M%init(nnz = 16*this%domain%nElem, rows = this%domain%nNodes+1)
     Allocate(rhoVect(this%nGauss),cVect(this%nGauss))
     Do iElem = 1, this%domain%nElem
        nNodes = this%domain%element(iElem)%nNodes
@@ -408,21 +421,24 @@ End Do
             , upper = this%domain%x(this%domain%element(iElem)%node(nNodes)))
 
        Do i = 1, nNodes
-             Minvij = gauss(this%domain%element(iElem)%jacobian, cVect,rhoVect &
+             Mij = gauss(this%domain%element(iElem)%jacobian, cVect,rhoVect &
                   , shapeFuncMat(nNodes-1, i, :) &
                   , shapeFuncMat(nNodes-1, i, :))
-             Call this%Minv%append(value = Minvij &
+             Call this%M%append(value = Mij &
                   , row = this%domain%element(iElem)%node(i) &
                   , col = this%domain%element(iElem)%node(i))
        End Do
     End Do
-    Call this%Minv%getSparse
+    Call this%M%getSparse
     Deallocate(rhoVect, cVect)
   End Subroutine computeM
 
-  subroutine getInverse(this)
-    Class(Poisson1DType), Intent(InOut) :: this
-  end subroutine getInverse
+!!$  subroutine getInverse(this)
+!!$    Class(Poisson1DType), Intent(InOut) :: this
+!!$
+!!$
+!!$    
+!!$  end subroutine getInverse
   
   Subroutine computeRHS(this)
     Implicit none
@@ -470,7 +486,18 @@ End Do
   End Subroutine boundaryConditions
 
   Subroutine computeFlux(this)
-
+    use DerivatorMOD
+    Implicit none
+    Class(Poisson1DType), Intent(InOut) :: this
+    real(dp) :: h
+    h = this%domain%x(2)-this%domain%x(1) !Temp
+    this%flux(1) = getDeriv(this%phi(1:3), h, 'forward')
+    Do i = 2, this%domain%nNodes-1
+       this%flux(i) = getDeriv(this%phi(i-1:i+1), h, 'centered')
+    end Do
+    this%flux(this%domain%nNodes) = getDeriv(this%phi(this%domain%nNodes-2:this%domain%nNodes) &
+         , h, 'backward')
+    this%flux = -1*this%kCoef(1, 1.d0)*this%flux !temp    
   End Subroutine computeFlux
 End Module Poisson1DMod
 

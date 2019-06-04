@@ -9,7 +9,7 @@ LIBOBJECTS	:=  Poisson1D/Libraries/Objects
 FFLAGS		:=  -g -O3 -J$(OBJECTDIR)
 FFLAGSDebug 	:=  -g -Wall -fcheck=all -J$(OBJECTDIR)
 
-OBJECTS := $(BINDIR)/element1DMod.o $(BINDIR)/GLFEM.o $(BINDIR)/domainMod.o $(BINDIR)/quicksort.o $(BINDIR)/ST_TO_CC.o $(BINDIR)/sparse.o $(BINDIR)/GMRES.o $(BINDIR)/Poisson1D.o $(BINDIR)/GidData.o $(BINDIR)/functions.o $(BINDIR)/main.o
+OBJECTS := $(BINDIR)/Derivator.o $(BINDIR)/element1DMod.o $(BINDIR)/GLFEM.o $(BINDIR)/domainMod.o $(BINDIR)/quicksort.o $(BINDIR)/ST_TO_CC.o $(BINDIR)/sparse.o $(BINDIR)/GMRES.o $(BINDIR)/Poisson1D.o $(BINDIR)/GidData.o $(BINDIR)/functions.o $(BINDIR)/main.o
 LIBRARIES := $(LIB)/mylib.a
 
 main: $(OBJECTS)
