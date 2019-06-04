@@ -1,0 +1,5 @@
+ function Source(x)
+ Implicit none
+ real(8) x,Source
+ source=3
+ end function Source

@@ -1,0 +1,180 @@
+Module InverseMod
+  Implicit none
+  Public
+
+Contains
+
+subroutine spinverse( n, a, ai, aj, ainv, ainvi, ainvj)
+implicit none
+  real ( kind = 8 ) x(n)
+  real ( kind = 8 ) y(n)
+  real ( kind = 8 ) a(*)
+  real ( kind = 8 ) al(*)
+  real ( kind = 8 ) ainv(*)
+  integer ( kind = 4 ) n
+  integer ( kind = 4 ) ai(*)
+  integer ( kind = 4 ) ainvi(*)
+  integer ( kind = 4 ) ali(*)
+  integer ( kind = 4 ) aj(*)
+  integer ( kind = 4 ) alj(*)
+  integer ( kind = 4 ) ainvj(*)
+  integer ( kind = 4 ) i
+  integer ( kind = 4 ) j
+  integer ( kind = 4 ) k
+
+call getl ( n, a, aj, ai, al, alj, ali )
+y = 0.
+do i = 1,n
+call lsol ( n, x, y, al, alj, ali )
+end do
+end subroutine spinverse
+!!$%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+subroutine lsol ( n, x, y, al, jal, ial )
+
+!*****************************************************************************80
+!
+!! LSOL solves L*x = y ; L = lower unit triang. /  CSR format
+!
+!  Discussion:
+!
+!    This routine solves a unit lower triangular system by standard 
+!    (sequential ) forward elimination - matrix stored in CSR format.
+!
+!  Modified:
+!
+!    07 January 2004
+!
+!  Author:
+!
+!    Youcef Saad
+!
+!  Parameters:
+!
+!    Input, integer ( kind = 4 ) N, the order of the matrix.
+!
+! y      = real array containg the right side.
+!
+! al,
+! jal,
+! ial,    = Lower triangular matrix stored in compressed sparse row
+!          format.
+!
+!    Output, real X(N), the solution.
+!
+  implicit none
+
+  integer ( kind = 4 ) n
+
+  real ( kind = 8 ) al(*)
+  integer ( kind = 4 ) ial(n+1)
+  integer ( kind = 4 ) j
+  integer ( kind = 4 ) jal(*)
+  integer ( kind = 4 ) k
+  real ( kind = 8 ) t
+  real ( kind = 8 ) x(n)
+  real ( kind = 8 ) y(n)
+
+  x(1) = y(1)
+  do k = 2, n
+    t = y(k)
+    do j = ial(k), ial(k+1)-1
+      t = t-al(j) * x(jal(j))
+    end do
+    x(k) = t
+  end do
+end subroutine lsol
+!!$%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+subroutine getl ( n, a, ja, ia, ao, jao, iao )
+
+!*****************************************************************************80
+!
+!! GETL extracts the lower triangular part of a matrix.
+!
+!  Discussion:
+!
+!    This routine extracts the lower triangle of a matrix and writes the result 
+!    as ao, jao, iao.  The routine is "in place" in that ao, jao, iao can be 
+!    the same as a, ja, ia if desired.
+!
+!    The diagonal element is the last element in each row.
+!    That is, the diagonal element of row I is in A(IA(I+1)-1).
+!
+!  Modified:
+!
+!    07 January 2004
+!
+!  Author:
+!
+!    Youcef Saad
+!
+!  Parameters:
+!
+!    Input, integer ( kind = 4 ) N, the order of the matrix.
+!
+!    Input, real A(*), integer ( kind = 4 ) JA(*), IA(N+1), the matrix in CSR
+!    Compressed Sparse Row format.
+!
+!    Output, real AO(*), JAO(*), IAO(N+1), the lower triangular
+!    part of the input matrix, in CSR Compressed Sparse Row format.
+!
+  implicit none
+
+  real ( kind = 8 ) a(*)
+  real ( kind = 8 ) ao(*)
+  integer ( kind = 4 ) i
+  integer ( kind = 4 ) ia(*)
+  integer ( kind = 4 ) iao(*)
+  integer ( kind = 4 ) ja(*)
+  integer ( kind = 4 ) jao(*)
+  integer ( kind = 4 ) k
+  integer ( kind = 4 ) kdiag
+  integer ( kind = 4 ) ko
+  integer ( kind = 4 ) kold
+  integer ( kind = 4 ) n
+  real ( kind = 8 ) t
+!
+!  Inititialize KO, the pointer for the output matrix.
+!
+  ko = 0
+
+  do i = 1, n
+
+    kold = ko
+    kdiag = 0
+
+    do k = ia(i), ia(i+1) -1
+
+      if ( ja(k) <= i ) then
+        ko = ko+1
+        ao(ko) = a(k)
+        jao(ko) = ja(k)
+        if ( ja(k) == i ) then
+          kdiag = ko
+        end if
+      end if
+
+    end do
+!
+!  Exchange.
+!
+    if ( kdiag /= 0 .and. kdiag /= ko ) then
+
+      t = ao(kdiag)
+      ao(kdiag) = ao(ko)
+      ao(ko) = t
+
+      k = jao(kdiag)
+      jao(kdiag) = jao(ko)
+      jao(ko) = k
+
+    end if
+
+    iao(i) = kold + 1
+
+  end do
+!
+!  Redefine IAO(N+1).
+!
+  iao(n+1) = ko + 1
+end subroutine getl
+End Module InverseMod

@@ -1,0 +1,4 @@
+ Function kCoef(x)
+ Implicit none
+ Real(8) x,kCoef
+ End Function kCoef

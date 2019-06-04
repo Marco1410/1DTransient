@@ -1,0 +1,15 @@
+ Function kCoef(i,Xvalue)
+ Implicit none
+ Real(8), Intent(In) :: Xvalue
+ Real(8) :: kcoef
+ Integer, Intent(In) :: i
+
+ end function kCoef
+
+
+ Function Source(i,Xvalue)
+ Implicit none
+ Real(8), Intent(In) :: Xvalue
+ Real(8) :: Source
+ Integer, Intent(In) :: i
+ End Function Source

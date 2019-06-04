@@ -1,0 +1,11 @@
+Program main
+Use GidDataMod
+  Implicit none
+  Type(Poisson1DType) :: problem
+  Call readGid(problem)
+  Call problem%init
+  Call problem%solve
+  Call writeGid(problem)
+End Program main
+
+

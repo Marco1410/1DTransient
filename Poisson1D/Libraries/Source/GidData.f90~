@@ -1,0 +1,224 @@
+Module GidDataMod
+  Use tools, Only: dp, sp
+  Use Poisson1DMod
+  Use Print_All
+  Implicit none
+  Public
+  Type(Poisson1DType) :: problem
+  Integer :: nNodesTotal, lineNumber, columnNumber
+  Integer :: i, j, io, i1, i2, i3, ielem,temp
+  Integer :: numberPhi_barra, iphi, numberq_barra, iq
+  Integer, dimension(5) :: vect
+  Integer, Dimension(:,:), allocatable :: mat
+  !Temperatura prescrita:
+  Real(8) :: phi_barra
+  !Flujo de calor prescrito:
+   Real(8) :: q_barra
+  Character (len = 250) :: projectName,funcion,path
+  Real(8), external :: Source
+  Real(8), external :: kCoef
+  
+  Interface ReadGid
+     Module Procedure ReadDataGid
+  End Interface ReadGid
+  Interface WriteGid
+     Module Procedure WriteDataGid
+  End Interface WriteGid
+  
+  Contains
+
+Subroutine ReadDataGid(Elemento)
+Implicit none
+  Open(99, file = 'filename.dat')
+  Read(99,*) projectName
+  Close(99)
+
+  Open(100, file = 'path.dat')
+  Read(100,'(250A)') path
+  Close(100)
+  
+  call functions(path,projectName)
+ 
+  problem%kCoef => kCoef
+  problem%source => source
+  problem%nGauss = 3
+
+  Open(1, file = trim(projectName)//"-3.dat")
+  Read(1,*) 
+  Read(1,*) nNodesTotal
+  Read(1,*)
+  Allocate(problem%domain%x(nNodesTotal))
+
+  Do i = 1, nNodesTotal
+     Read(1,*) problem%domain%x(i)
+  End Do
+  Close(1)
+
+  Allocate(mat(nNodesTotal-1,6))
+
+  Open(2, file = trim(projectName)//'-1.dat')
+  lineNumber = 0
+  mat = 0
+  io = 0
+  Do    
+     Call readLine(vect, lineNumber, columnNumber, io)
+     If(io < 0) then
+        lineNumber = lineNumber + 1
+        Exit
+     Else If(io > 0) then
+        Print*, 'error'
+     Else
+        lineNumber = lineNumber + 1
+     End If
+     mat(lineNumber, 1) = vect(1)
+     mat(lineNumber, 2) = columnNumber-1
+     mat(lineNumber, 3:columnNumber+1) = vect(2:columnNumber)
+  End Do
+
+  lineNumber = lineNumber - 1
+  problem%domain%nElem = lineNumber
+  
+  Allocate(problem%domain%element(problem%domain%nElem))
+
+  Do i = 1, lineNumber
+     If(mat(i,2) == 2) then
+        Call Problem%domain%element(i)%init(2)
+        problem%domain%element(i)%node(1:2) = mat(i,3:4)
+     Else If(mat(i,2) == 3) then
+        Call Problem%domain%element(i)%init(3)
+        problem%domain%element(i)%node(1) = mat(i,3)
+        problem%domain%element(i)%node(2) = mat(i,5)
+        problem%domain%element(i)%node(3) = mat(i,4)
+     Else If(mat(i,2) == 4) then
+        Call Problem%domain%element(i)%init(4)
+        problem%domain%element(i)%node(1:4) = mat(i,3:6)
+     End If
+  End Do
+  Deallocate(mat)
+  close(2)
+
+  Allocate(problem%phi(nNodesTotal))
+  problem%phi(nNodesTotal) = 0.
+
+  Open(9, file = trim(projectName)//'-2.dat')
+  Read(9,*) numberPhi_barra
+  Read(9,*)
+  Do i = 1, numberPhi_barra
+     Read(9,*) iphi,phi_barra
+     problem%K(iphi,:) = 0.
+     problem%K(iphi,iphi) = 1.
+     problem%phi(iphi) = phi_barra
+     problem%rhs(iphi) = phi_barra
+  End Do
+
+  Read(9,*)
+  Read(9,*) numberq_barra
+  Read(9,*)
+  Do i = 1, numberq_barra
+     Read(9,*) iq,q_barra
+     problem%rhs(iq) = problem%rhs(iq) - q_barra
+  End Do
+  Close(9)
+End Subroutine ReadDataGid
+
+!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  
+
+Subroutine WriteDataGid(Elemento)
+Implicit none
+  Open(4, file = trim(projectName)//'.flavia.res')
+  
+  write(4,*)'GiD Post Result File 1.0'
+  write(4,*)'Result "Temperature"',' "',trim(projectName),'" ','1 Scalar OnNodes'
+  write(4,*)'Values'
+  Do i = 1, nNodesTotal
+     Write(4,*) i, problem%phi(i)
+  End Do
+  write(4,*) 'End Values'
+  Write(4,*)
+  write(4,*)'Result "Flux"',' "',trim(projectName),'" ','1 Scalar OnNodes'
+  write(4,*)'Values'
+  Do i = 1, nNodesTotal
+     Write(4,*) i, problem%flux(i)
+  End Do
+  write(4,*) 'End Values'
+  Close(4)
+End Subroutine WriteDataGid
+End Module GidDataMod
+
+Subroutine readLine(x, lineNumber, columnNumber, success)
+  Implicit none
+  Integer, Intent(Out) :: x(5)
+  Integer, Intent(In) :: lineNumber
+  Integer, Intent(Out) :: columnNumber
+  character(len=100) :: line
+  integer           :: i, success, indx, prev, beginning, value
+
+  read(2,'(A)',iostat=success) line
+  If(success == 0) then
+     prev      = 1 
+     beginning = 1
+     columnNumber = 0
+     do i=1,len(line)
+        ! is the current character one out of the desired set? (if you
+        ! have got negative numbers as well, don't forget to add a '-')
+        indx = index('0123456789.', line(i:i))
+
+        ! store value when you have reached a blank (or any other 
+        ! non-real number character)
+        if (indx.eq.0 .and. prev.gt.0) then
+           read(line(beginning:i-1), *) value
+           !print *, value
+           columnNumber = columnNumber + 1
+           x(columnNumber) = value
+        else if (indx.gt.0 .and. prev.eq.0) then
+           beginning = i 
+        end if
+        prev = indx
+     end do
+  End If
+End Subroutine readLine
+
+Subroutine functions(path,projectName)
+  implicit none
+  character (250) projectName, path, funcion,kCoef
+  integer :: i
+
+  open(1, file = trim(projectName)//'.dat')
+  read(1,*)
+  read(1,*)
+  read(1,*)
+  read(1,*) i, funcion
+  close(1)
+
+  open(98, file = trim(path)//'/Poisson1D/Source/Source.f90')
+  write(98,*)'function Source(x)' 
+  write(98,*)'Implicit none'
+  write(98,*)'real(8) x,Source'
+  write(98,*)'source=',trim(funcion)
+  write(98,*)'end function Source'
+  close(98)
+
+  open(2, file = trim(projectName)//'.dat')
+  read(2,*)
+  read(2,*)
+  read(2,*)
+  read(2,*) n
+  close(2)
+
+  open(97, file = trim(path)//'/Poisson1D/Source/kcoef.f90')
+  write(97,*)'Function kCoef(i,x)' 
+  write(97,*)'Implicit none'
+  write(97,*)'Real(8) :: x,kCoef,vecfun(',n,')'
+  write(97,*)'Integer :: i,n'
+  write(97,*)'n=',n
+  Do i = 1,n
+  read(2,*) aux, kcoef
+  write(97,*)'vecfun(',i,')=',trim(kCoef)
+  End Do
+  write(97,*)'kCoef= vecfun(i)'  
+  write(97,*)'end function kCoef'
+  close(97)
+
+  call system('cd;cd '//trim(path)//'/ ;make')
+
+End Subroutine functions

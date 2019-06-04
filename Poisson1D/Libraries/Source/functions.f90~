@@ -1,0 +1,22 @@
+ Function kCoef(i,Xvalue)
+ Implicit none
+ Real(8) :: vecfunkcoef(           1 )
+ Real(8), Intent(In) :: Xvalue
+ Real(8) :: kcoef,X
+ Integer, Intent(In) :: i
+ x=Xvalue
+ vecfunkcoef(           1 )=                  1
+ kCoef= vecfunkcoef(i)
+ end function kCoef
+
+
+ Function Source(i,Xvalue)
+ Implicit none
+ Real(8) :: vecfunSource(           1 )
+ Real(8), Intent(In) :: Xvalue
+ Real(8) :: Source,X
+ Integer, Intent(In) :: i
+ x=Xvalue
+ vecfunSource(           1 )=          3
+ Source= vecfunSource(i)
+ End Function Source

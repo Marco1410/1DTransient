@@ -1,0 +1,26 @@
+PROBLEM DATA
+QUESTION: Problem_Name
+VALUE: Poisson's Analysis
+QUESTION: Solver_Type #CB#(1D,2D,3D)
+VALUE: 1D
+QUESTION: Solver_Method #CB#(Steady_State,Transient_State)
+VALUE: Steady State
+QUESTION:Explicit#CB#(NO,YES)
+VALUE: NO
+QUESTION:Crank-Nicolson#CB#(NO,YES)
+VALUE: NO
+QUESTION:Galerkin#CB#(NO,YES)
+VALUE: NO
+QUESTION:Implicit#CB#(NO,YES)
+VALUE: NO
+QUESTION:Runge_Kutta4#CB#(NO,YES)
+VALUE: NO
+QUESTION: Initial_Time
+VALUE: 0
+QUESTION: Final_Time
+VALUE: 0
+QUESTION: Source_Number
+VALUE: 1
+QUESTION: Gauss_Order
+VALUE: 3
+END PROBLEM DATA
