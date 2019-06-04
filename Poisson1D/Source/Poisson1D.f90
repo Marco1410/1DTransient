@@ -35,7 +35,7 @@ Module Poisson1DMod
      Procedure, Public :: solveTransientState
      Procedure, Private :: computeK
      Procedure, Private :: computeM
-!!$     Procedure, Private :: getInverse
+     Procedure, Private :: getInverse
      Procedure, Private :: computeMLumped
      Procedure, Private :: computeRHS
      Procedure, Private :: boundaryConditions
@@ -147,7 +147,8 @@ Contains
          , itr_max = ITR_MAX           &
          , mr = 500                    &
          , tol_abs = TOL_ABS           &
-         , tol_rel = 1d-15            )
+         , tol_rel = 1d-15             &
+         , verbose = .true.           )
     Call this%computeFlux
   End Subroutine solveSteadyState
 
@@ -197,26 +198,8 @@ Contains
 !!$------------------------------------------------------------------
     Call this%computeK
     Call this%computeMLumped
+    Call this%getInverse
     call this%computeFlux
-!!$    call this%getInverse
-    
-!!$Print*, 'm AI :','size :', size(this%Minv%AI)
-!!$print*,this%Minv%AI
-!!$print*, 'm AJ :','size :', size(this%Minv%AJ)
-!!$print*,this%Minv%AJ
-!!$print*, 'm A  :','size :', size(this%Minv%A)
-!!$print*,this%Minv%A
-!!$
-Do i = 1, size(this%MLumped%A)
-   this%MLumped%A(i) = 1.d0/this%MLumped%A(i)
-End Do
-
-!!$    Do i = 1, this%domain%nNodes
-!!$       Do j = this%Mlumped%AI(i), this%Mlumped%AI(i+1)-1
-!!$Print'(A,I0,A,I0,A,E10.4)', 'Mlumped(', i, ',', this%Mlumped%AJ(j), ') = ', this%Mlumped%A(j)
-!!$       End Do
-!!$    End Do
-
     Call this%computeRHS
 !!$-------------------------------------------------------------------
 !!$ Initial conditions
@@ -271,8 +254,8 @@ End Do
             , ja = this%K%AJ              &
             , a = this%K%A                &
             , x = this%phi                &
-            , w = w                       )
-       this%phi=this%phi+Delta_t*(this%MLumped%A*(this%rhs-w))
+            , w = w                      )
+       this%phi=this%phi+Delta_t*(this%MInverse%A*(this%rhs-w))
        this%phi = this%phi(this%domain%nNodes:1:-1)
 !!$ Boundary conditions
 !!$-------------------------------------------------------------------
@@ -433,12 +416,37 @@ End Do
     Deallocate(rhoVect, cVect)
   End Subroutine computeM
 
-!!$  subroutine getInverse(this)
-!!$    Class(Poisson1DType), Intent(InOut) :: this
-!!$
-!!$
-!!$    
-!!$  end subroutine getInverse
+  subroutine getInverse(this)
+    Use GMRES  
+    Class(Poisson1DType), Intent(InOut) :: this
+    real(dp) :: y(this%domain%nNodes),x(this%domain%nNodes)
+    Integer, parameter :: ITR_MAX = 1000
+    Real(dp), parameter :: TOL_ABS = 1d-15
+    Call this%MInverse%init(nnz = 16*this%domain%nElem, rows = this%domain%nNodes+1)
+    do j = 1,this%domain%nNodes
+       y = 0.
+       y(j) = 1.
+       Call pmgmres_ilu_cr(                &
+              n = this%domain%nNodes       &
+            , nz_num = size(this%MLumped%A)&
+            , ia = this%MLumped%AI         &
+            , ja = this%MLumped%AJ         &
+            , a = this%MLumped%A           &
+            , x = x                        &
+            , rhs = y                      &
+            , itr_max = ITR_MAX            &
+            , mr = 500                     &
+            , tol_abs = TOL_ABS            &
+            , tol_rel = 1d-15              &
+            , verbose = .false.           )
+       do i = 1, this%domain%nNodes
+          if(abs(x(i)).gt.1d-5)then
+             Call this%MInverse%append(value = x(i), row = i, col = j)
+          end if
+       end do   
+    end do
+    Call this%MInverse%getSparse
+  end subroutine getInverse
   
   Subroutine computeRHS(this)
     Implicit none
