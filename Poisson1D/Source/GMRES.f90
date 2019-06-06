@@ -1563,6 +1563,10 @@ subroutine aplb ( nrow, ncol, a, ja, ia, b, jb, ib, c, jc, ic)
      c = local%A
     jc = local%AJ
     ic = local%AI
+    else
+     c = aux
+    jc = jaux
+    ic = iaux
     end if
 end subroutine aplb
 End Module GMRES

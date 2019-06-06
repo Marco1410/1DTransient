@@ -43,7 +43,7 @@ Module Poisson1DMod
      Procedure, Private :: valueJacobianGaussPoints
      Procedure, Private :: valueJacobianNodePoints
      Procedure, Public :: TransientMethod
-     Procedure, Public :: Runge_Kutta4
+!!$     Procedure, Public :: Runge_Kutta4
   End type Poisson1DType
   
   Real(dp), Dimension(:,:,:), Allocatable :: shapeFuncMat, derivShapeFuncMat
@@ -161,9 +161,9 @@ Contains
        this%theta = 2./3
     Case('Implicit')
        this%theta = 1.
-    Case('Runge-Kutta')
-       Call this%Runge_Kutta4
-       stop
+!!$    Case('Runge-Kutta')
+!!$       Call this%Runge_Kutta4
+!!$       stop
     End Select
        Call this%TransientMethod
   End Subroutine solveTransientState
@@ -197,8 +197,8 @@ Contains
     write(results,*)      'GiD Post Result File 1.0'
 !!$------------------------------------------------------------------
     Call this%computeK
-    Call worksparse1%init(nnz = size(this%K%A), rows = this%domain%nNodes+1)
-    Call worksparse2%init(nnz = size(this%K%A), rows = this%domain%nNodes+1)
+    Call worksparse1%init(nnz = size(this%K%A), rows = this%domain%nNodes)
+    Call worksparse2%init(nnz = size(this%K%A), rows = this%domain%nNodes)
         Allocate(this%phi(this%domain%nNodes))
         Allocate(this%flux(size(this%domain%x)))
     Call this%computeMlumped
@@ -315,10 +315,10 @@ end if
     Close(results)
   End Subroutine TransientMethod
 
-  Subroutine Runge_Kutta4(this)
-    Implicit none
-    Class(Poisson1DType), Intent(InOut) :: this
-  End Subroutine Runge_Kutta4
+!!$  Subroutine Runge_Kutta4(this)
+!!$    Implicit none
+!!$    Class(Poisson1DType), Intent(InOut) :: this
+!!$  End Subroutine Runge_Kutta4
   
   Subroutine valueJacobianGaussPoints(this)
     Implicit none
@@ -386,10 +386,18 @@ end if
     Implicit none
     Class(poisson1DType), Intent(InOut) :: this
     Integer :: nNodes
-    Call this%MLumped%init(nnz = 16*this%domain%nElem, rows = this%domain%nNodes+1)
+    Real(dp) :: factor
+    Call this%MLumped%init(nnz = 2*this%domain%nNodes, rows = this%domain%nNodes+1)
     Allocate(rhoVect(this%nGauss),cVect(this%nGauss))
     Do iElem = 1, this%domain%nElem
        nNodes = this%domain%element(iElem)%nNodes
+       if (nNodes == 2) then
+          factor = 1.5
+       else if (nNodes == 3) then
+          factor = 2.
+       else if (nNodes == 4)
+          factor = 2.25
+       end if
        Call valueGauss(this%c &
             , this%domain%element(iElem)%materialIndex &
             , cVect &
@@ -400,11 +408,10 @@ end if
             , rhoVect &
             , lower = this%domain%x(this%domain%element(iElem)%node(1)) &
             , upper = this%domain%x(this%domain%element(iElem)%node(nNodes)))
-
        Do i = 1, nNodes
-             Mij = gauss(1.5*this%domain%element(iElem)%jacobian, cVect,rhoVect &
-                  , shapeFuncMat(nNodes-1, i, :) &
-                  , shapeFuncMat(nNodes-1, i, :))
+                Mij = gauss(factor*this%domain%element(iElem)%jacobian, cVect,rhoVect &
+                     , shapeFuncMat(nNodes-1, i, :) &
+                     , shapeFuncMat(nNodes-1, i, :))
              Call this%MLumped%append(value = Mij &
                   , row = this%domain%element(iElem)%node(i) &
                   , col = this%domain%element(iElem)%node(i))
@@ -456,7 +463,7 @@ end if
     Integer :: n
     Integer, parameter :: ITR_MAX = 1000
     Real(dp), parameter :: TOL_ABS = 1d-15
-    Call inverse%init(nnz = 16*this%domain%nElem, rows = this%domain%nNodes+1)
+    Call inverse%init(nnz = 16*this%domain%nElem, rows = this%domain%nNodes)
     do j = 1,this%domain%nNodes
        y = 0.
        y(j) = 1.
