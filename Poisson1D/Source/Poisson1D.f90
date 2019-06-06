@@ -24,7 +24,7 @@ Module Poisson1DMod
      Real(dp), Dimension(:), Allocatable :: flux
      Integer, Dimension(:), Allocatable :: DirichletNode, NeumannNode
      Real(dp), Dimension(:), Allocatable :: DirichletValue, NeumannValue
-     Real(dp) :: t0, tf
+     Real(dp) :: t0, tf, theta
      Integer :: nGauss
      Character(250) :: method, SolveMethod
    Contains
@@ -35,17 +35,14 @@ Module Poisson1DMod
      Procedure, Public :: solveTransientState
      Procedure, Private :: computeK
      Procedure, Private :: computeM
-     Procedure, Private :: getInverse
      Procedure, Private :: computeMLumped
+     Procedure, Private :: getInverse
      Procedure, Private :: computeRHS
      Procedure, Private :: boundaryConditions
      Procedure, Public :: computeFlux
      Procedure, Private :: valueJacobianGaussPoints
      Procedure, Private :: valueJacobianNodePoints
-     Procedure, Public :: Explicit
-     Procedure, Public :: CrankNicolson
-     Procedure, Public :: Galerkin
-     Procedure, Public :: Implicit
+     Procedure, Public :: TransientMethod
      Procedure, Public :: Runge_Kutta4
   End type Poisson1DType
   
@@ -157,139 +154,172 @@ Contains
     Class(Poisson1DType) :: this
     Select case(this%solveMethod)
     Case('Explicit')
-       Call this%Explicit
+       this%theta = 0.
     Case('Crank-Nicolson')
-       Call this%CrankNicolson
+       this%theta = .5
     Case('Galerkin')
-       Call this%Galerkin
+       this%theta = 2./3
     Case('Implicit')
-       Call this%Implicit
+       this%theta = 1.
     Case('Runge-Kutta')
        Call this%Runge_Kutta4
+       stop
     End Select
+       Call this%TransientMethod
   End Subroutine solveTransientState
 
-  Subroutine Explicit(this)
+  Subroutine TransientMethod(this)
     Use GMRES    
     Implicit none
     Class(Poisson1DType) :: this
+    Type(sparseType) :: worksparse1
+    Type(sparseType) :: worksparse2
     Character (len = 250) :: projectName, path
     Integer, Parameter :: projectData= 1, results= 2, Data= 3
-    Integer :: t
-    Real(dp) :: Delta_t, time, w(this%domain%nNodes)
-
+    integer :: step1, step2
+    Real(sp) :: time
+    Real(dp) :: Delta_t, w(this%domain%nNodes)
+!!$-----------------------------------------------------------------
     Open(projectData, file = 'projectData.dat')
     Read(projectData,'(250A)') projectName
     Read(projectData,'(250A)') path
     Close(projectData)
-    Open(Data, file='result')
-    Print*, 'Delta_t =',.5*this%c(this%domain%element(1)%materialIndex,1.d0)&
+!!$-----------------------------------------------------------------
+!!$--------------- Delta t---------------------------------------------
+    Delta_t = (.5*this%c(this%domain%element(1)%materialIndex,1.d0)&
             *this%rho(this%domain%element(1)%materialIndex,1.d0)&
             *(abs(this%domain%x(1)-this%domain%x(2)))**2&
-            /this%kcoef(this%domain%element(1)%materialIndex,1.d0)
+            /this%kcoef(this%domain%element(1)%materialIndex,1.d0))!*.3 para matriz completa
+    Print*, 'Delta_t = ',Delta_t
+!!$------------------------------------------------------------------
+    Open(Data, file='result')
     Open(results, file = trim(projectName)//'.flavia.res')
     write(results,*)      'GiD Post Result File 1.0'
-   
-    t = 0
-    time = this%t0
-    Allocate(this%phi(this%domain%nNodes))
-    this%phi = 0.d0
-    Allocate(this%flux(size(this%domain%x)))
 !!$------------------------------------------------------------------
     Call this%computeK
-    Call this%computeMLumped
-    Call this%getInverse
-    call this%computeFlux
+    Call worksparse1%init(nnz = size(this%K%A), rows = this%domain%nNodes+1)
+    Call worksparse2%init(nnz = size(this%K%A), rows = this%domain%nNodes+1)
+        Allocate(this%phi(this%domain%nNodes))
+        Allocate(this%flux(size(this%domain%x)))
+    Call this%computeMlumped
+!se puede cambiar por m completa pero delta t tiene q ser menor
+    Call aplb(                               &        
+         nrow = this%domain%nNodes           &
+         ,ncol = this%domain%nNodes          &
+         ,a = this%Mlumped%A/Delta_t         &
+         ,ja = this%Mlumped%AJ               &
+         ,ia = this%Mlumped%AI               &
+         ,b = this%K%A*(this%theta-1)        &
+         ,jb = this%K%AJ                     &
+         ,ib =this%K%AI                      &
+         ,c =  worksparse1%A                 &
+         ,jc = worksparse1%AJ                &
+         ,ic = worksparse1%AI               )
+    Call aplb(                               &       
+         nrow = this%domain%nNodes           &
+         ,ncol = this%domain%nNodes          &
+         ,a = this%Mlumped%A/Delta_t         &
+         ,ja = this%Mlumped%AJ               &
+         ,ia = this%Mlumped%AI               &
+         ,b = this%K%A*this%theta            &
+         ,jb = this%K%AJ                     &
+         ,ib = this%K%AI                     &
+         ,c =  worksparse2%A                 &
+         ,jc = worksparse2%AJ                &
+         ,ic = worksparse2%AI               )
     Call this%computeRHS
+    Call this%getInverse (this%domain%nNodes,worksparse2,this%MInverse)
+    ! para m completa sacar la lumped
 !!$-------------------------------------------------------------------
 !!$ Initial conditions
-!!$-------------------------------------------------------------------   
+!!$-------------------------------------------------------------------  
+    this%phi = 0.d0
+    time = this%t0
+    step1 = 0
+    step2 = 0
     Do i = 1, size(this%NeumannNode)
        this%rhs(this%NeumannNode(i)) = &
-            this%rhs(this%NeumannNode(i)) &
+            this%rhs(this%NeumannNode(i))&
             - this%NeumannValue(i)
     End Do
     this%rhs = this%rhs(this%domain%nNodes:1:-1)
     Do i = 1, size(this%DirichletNode)
        this%phi(this%DirichletNode(i)) = this%DirichletValue(i)
     End Do
+    call this%computeFlux
 !!$--------------------------------------------------------------------
 !!$ calculate
 !!$--------------------------------------------------------------------
     Do while (time <= this%tf)
-       t = t + 1
-
-    Do i = 1, this%domain%nNodes
-       Write(Data,*) this%domain%x(i),this%phi(i)
-    End Do
+!!$------------------------------------------------------------
+!!$--------------------------writing---------------------------
+!!$------------------------------------------------------------
+if (step1 == step2) then
+       Do i = 1, this%domain%nNodes
+          Write(Data,*) this%domain%x(i),this%phi(i)
+       End Do
        Write(Data,*)
        Write(Data,*)
-
-       write(results,*)      'Result "Temperature"',' "',trim(projectName),'" ',t,'Scalar OnNodes'
+!!$------------------------------------------------------------
+!!$------------------------------------------------------------
+!!$------------------------------------------------------------
+       write(results,*)'Result "Temperature"',' "',trim(projectName),'" ',time,'Scalar OnNodes'
        write(results,*)      'Values' 
-    Do i = 1, this%domain%nNodes
-       Write(results,*)      i, this%phi(i)
-    End Do
+       Do i = 1, this%domain%nNodes
+          Write(results,*)      i, this%phi(i)
+       End Do
        write(results,*)      'End Values'
        write(results,*)
-
-       write(results,*)      'Result "Flux"',' "',trim(projectName),'" ',t,'Scalar OnNodes'
+       write(results,*)'Result "Flux"',' "',trim(projectName),'" ',time,'Scalar OnNodes'
        write(results,*)      'Values' 
-    Do i = 1, this%domain%nNodes
-       Write(results,*)      i, this%Flux(i)
-    End Do
+       Do i = 1, this%domain%nNodes
+          Write(results,*)      i, this%Flux(i)
+       End Do
        write(results,*)      'End Values'
        write(results,*)
-       
-       Delta_t = .5*this%c(this%domain%element(1)%materialIndex,1.d0)&
-            *this%kcoef(this%domain%element(1)%materialIndex,1.d0)&
-            *(abs(this%domain%x(1)-this%domain%x(2)))**2&
-            /this%kcoef(this%domain%element(1)%materialIndex,1.d0)
- 
+       step2 = step2+10
+end if
+!!$------------------------------------------------------------
+!!$----------------------end writing---------------------------
+!!$------------------------------------------------------------
+       time = time + Delta_t
        this%phi = this%phi(this%domain%nNodes:1:-1)
-       call atx_cr (                      &
-              n = this%domain%nNodes      &
-            , nz_num = size(this%K%A)     &
-            , ia = this%K%AI              &
-            , ja = this%K%AJ              &
-            , a = this%K%A                &
-            , x = this%phi                &
-            , w = w                      )
-       this%phi=this%phi+Delta_t*(this%MInverse%A*(this%rhs-w))
+       call atx_cr (                          &
+            n = this%domain%nNodes            &
+            , nz_num = size(worksparse1%A)    &
+            , ia = worksparse1%AI             &
+            , ja = worksparse1%AJ             &
+            , a = worksparse1%A               &
+            , x = this%phi                    &
+            , w = w                          )
+       call atx_cr (                          &
+            n = this%domain%nNodes            &
+            , nz_num = size(this%MInverse%A)  &
+            , ia = this%MInverse%AI           &
+            , ja = this%MInverse%AJ           &
+            , a = this%MInverse%A             &
+            , x = (this%rhs+w)                &
+            , w = this%phi                   )
        this%phi = this%phi(this%domain%nNodes:1:-1)
+!!$------------------------------------------------------------------
 !!$ Boundary conditions
 !!$-------------------------------------------------------------------
-    Do i = 1, size(this%DirichletNode)
-       this%phi(this%DirichletNode(i)) = this%DirichletValue(i)
-    End Do
+       Do i = 1, size(this%DirichletNode)
+          this%phi(this%DirichletNode(i)) = this%DirichletValue(i)
+       End Do
 !!$--------------------------------------------------------------------
-    call this%computeFlux
-    time = time + Delta_t
+       call this%computeFlux
+       step1 = step1 + 1
     End Do
-  Close(Data)
-  Close(results)
-  End Subroutine Explicit
-
-  Subroutine CrankNicolson(this)
-    Implicit none
-    Class(Poisson1DType), Intent(InOut) :: this
-  End Subroutine CrankNicolson
-
-  Subroutine Galerkin(this)
-    Implicit none
-    Class(Poisson1DType), Intent(InOut) :: this
-  End Subroutine Galerkin
-
-  Subroutine Implicit(this)
-    Implicit none
-    Class(Poisson1DType), Intent(InOut) :: this
-  End Subroutine Implicit
+    Close(Data)
+    Close(results)
+  End Subroutine TransientMethod
 
   Subroutine Runge_Kutta4(this)
     Implicit none
     Class(Poisson1DType), Intent(InOut) :: this
   End Subroutine Runge_Kutta4
-
+  
   Subroutine valueJacobianGaussPoints(this)
     Implicit none
     Class(Poisson1DType), Intent(InOut) :: this
@@ -302,7 +332,7 @@ Contains
             + derivShapeFuncMat(nNodes-1, i, :)*this%domain%x(this%domain%element(iElem)%node(i))
     End Do
   End Subroutine valueJacobianGaussPoints
-
+  
   Subroutine valueJacobianNodePoints(this)
     Implicit none
     Class(Poisson1DType), Intent(InOut) :: this
@@ -402,50 +432,55 @@ Contains
             , rhoVect &
             , lower = this%domain%x(this%domain%element(iElem)%node(1)) &
             , upper = this%domain%x(this%domain%element(iElem)%node(nNodes)))
-
        Do i = 1, nNodes
+          Do j = 1, nNodes 
              Mij = gauss(this%domain%element(iElem)%jacobian, cVect,rhoVect &
                   , shapeFuncMat(nNodes-1, i, :) &
-                  , shapeFuncMat(nNodes-1, i, :))
+                  , shapeFuncMat(nNodes-1, j, :))
              Call this%M%append(value = Mij &
                   , row = this%domain%element(iElem)%node(i) &
-                  , col = this%domain%element(iElem)%node(i))
-       End Do
+                  , col = this%domain%element(iElem)%node(j))
+          End Do
+        End Do
     End Do
     Call this%M%getSparse
     Deallocate(rhoVect, cVect)
   End Subroutine computeM
 
-  subroutine getInverse(this)
+  subroutine getInverse(this,n,A,inverse)
     Use GMRES  
     Class(Poisson1DType), Intent(InOut) :: this
-    real(dp) :: y(this%domain%nNodes),x(this%domain%nNodes)
+    type(sparseType) :: A
+    type(sparseType) :: inverse
+    real(dp) :: y(n),x(n)
+    Integer :: n
     Integer, parameter :: ITR_MAX = 1000
     Real(dp), parameter :: TOL_ABS = 1d-15
-    Call this%MInverse%init(nnz = 16*this%domain%nElem, rows = this%domain%nNodes+1)
+    Call inverse%init(nnz = 16*this%domain%nElem, rows = this%domain%nNodes+1)
     do j = 1,this%domain%nNodes
        y = 0.
        y(j) = 1.
+       
        Call pmgmres_ilu_cr(                &
-              n = this%domain%nNodes       &
-            , nz_num = size(this%MLumped%A)&
-            , ia = this%MLumped%AI         &
-            , ja = this%MLumped%AJ         &
-            , a = this%MLumped%A           &
+              n = n                        &
+            , nz_num = size(A%A)           &
+            , ia = A%AI                    &
+            , ja = A%AJ                    &
+            , a = A%A                      &
             , x = x                        &
             , rhs = y                      &
             , itr_max = ITR_MAX            &
-            , mr = 500                     &
+            , mr = n-1                     &
             , tol_abs = TOL_ABS            &
             , tol_rel = 1d-15              &
             , verbose = .false.           )
-       do i = 1, this%domain%nNodes
+       do i = 1, n
           if(abs(x(i)).gt.1d-5)then
-             Call this%MInverse%append(value = x(i), row = i, col = j)
+             Call inverse%append(value = x(i), row = i, col = j)
           end if
        end do   
     end do
-    Call this%MInverse%getSparse
+    Call inverse%getSparse
   end subroutine getInverse
   
   Subroutine computeRHS(this)

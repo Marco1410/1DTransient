@@ -1114,7 +1114,6 @@ Contains
     call diagonal_pointer_cr ( n, nz_num, ia, ja, ua )
 
     call ilu_cr ( n, nz_num, ia, ja, a, ua, l )
-
 !!$    if ( verbose ) then
 !!$       write ( *, '(a)' ) ' '
 !!$       write ( *, '(a)' ) 'PMGMRES_ILU_CR'
@@ -1122,9 +1121,7 @@ Contains
 !!$    end if
 
     do itr = 1, itr_max
-
        call ax_cr ( n, nz_num, ia, ja, a, x, r )
-
        r(1:n) = rhs(1:n) - r(1:n)
 
        call lus_cr ( n, nz_num, ia, ja, l, ua, r, r )
@@ -1513,4 +1510,59 @@ Contains
     return
   end subroutine timestamp
 
+subroutine aplb ( nrow, ncol, a, ja, ia, b, jb, ib, c, jc, ic)
+  Use sparseMod
+!*****************************************************************************80
+!
+!! APLB performs the CSR matrix sum C = A + B.
+!
+  implicit none
+
+  integer ( kind = 4 ) ncol
+  integer ( kind = 4 ) nrow
+  type(sparsetype) :: local
+  real ( kind = 8 ) a(:)
+  real ( kind = 8 ) b(:)
+  real ( kind = 8 ), allocatable :: c(:)
+  real ( kind = 8 ) aux(size(b))
+  integer ( kind = 4 ) ia(nrow+1)
+  integer ( kind = 4 ) ib(nrow+1)
+  integer ( kind = 4 ), allocatable :: ic(:)
+  integer ( kind = 4 ) iaux(nrow+1)
+  integer ( kind = 4 ) ja(:)
+  integer ( kind = 4 ) jb(:)
+  integer ( kind = 4 ), allocatable :: jc(:)
+  integer ( kind = 4 ) jaux(size(b))
+  integer ( kind = 4 ) i,j
+  logical :: ok = .false.
+  Call local%init(nnz = size(b), rows = size(ib)+1)
+
+  aux  = b
+  jaux = jb
+  iaux = ib
+
+    Do i = 1, size(iaux)-1
+       Do j = iaux(i), iaux(i+1)-1
+          if(i == jaux(j))then
+             aux(j) = aux(j) + a(i)
+          end if
+       End Do
+    End Do
+
+    do i = 1, size(iaux)-1
+       Do j = iaux(i), iaux(i+1)-1
+          if(abs(aux(j)).gt.1d-5) then
+            Call local%append(value = aux(j), row = i, col = jaux(j))
+            ok = .true.
+          end if
+       end do
+    end do
+    if (ok) then
+    Call local%getSparse
+    allocate(c(size(local%A)),jc(size(local%A)),ic(size(local%A)))
+     c = local%A
+    jc = local%AJ
+    ic = local%AI
+    end if
+end subroutine aplb
 End Module GMRES

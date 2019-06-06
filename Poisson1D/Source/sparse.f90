@@ -19,6 +19,7 @@ Module sparseMod
      Procedure, Public :: init
      Procedure, Public :: append
      Procedure, Public :: getSparse
+     Procedure, Public :: update
   End type sparseType
 
   Real(dp), Dimension(:), Allocatable :: valueVector
@@ -42,6 +43,26 @@ Contains
     counter = 0
   End Subroutine init
 
+  subroutine update(this, nnz, rows)
+    implicit none
+    class(sparsetype), intent(inout) :: this
+    Integer, Intent(In) :: nnz, rows
+    deallocate(this%triplet%A)
+    deallocate(this%triplet%row)
+    deallocate(this%triplet%col)
+    deallocate(this%A)
+    deallocate(this%AJ,this%AI)
+    n = nnz
+    m = rows
+    Allocate(this%triplet%A(n))
+    Allocate(this%triplet%row(n))
+    Allocate(this%triplet%col(n))
+    this%triplet%A = 0
+    this%triplet%row = 0
+    this%triplet%col = 0
+    counter = 0
+  End subroutine update
+  
   Subroutine append(this, value, row, col)
     Implicit none
     Class(sparseType), Intent(InOut) :: this
